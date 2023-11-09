@@ -1,7 +1,8 @@
-from typing import Union
+# from typing import Union
 
 from api.db import init_db, get_session
-from api.models import Outpost, Task, TaskCreate, TaskRead, TaskUpdate
+from api.models import Task, TaskCreate, TaskRead, TaskUpdate
+from api.models import Outpost, OutpostCreate, OutpostRead, OutpostUpdate
 
 from fastapi import FastAPI, Depends, HTTPException, Query
 from sqlmodel import Session, select
@@ -20,31 +21,70 @@ async def root():
 
 
 @app.get("/api/v1/outposts")
-async def get_outposts(session: Session = Depends(get_session)):
-    outposts = session.exec(select(Outpost)).all()
-
-    return {
-        "outposts": [
-            Outpost(
-                name=o.name,
-                task_id=o.task_id,
-                open_at=o.open_at,
-                started_at=o.started_at,
-                completed_at=o.completed_at,
-            )
-            for o in outposts
-        ]
-    }
+def get_outposts(
+    *,
+    session: Session = Depends(get_session),
+    offset: int = 0,
+    limit: int = Query(default=100, le=100)
+):
+    outposts = session.exec(select(Outpost).offset(offset).limit(limit)).all()
+    return outposts
 
 
 @app.get("/api/v1/outposts/{outpost_id}")
-def get_outpost(outpost_id: int, q: Union[str, None]):
-    return {"id": outpost_id, "q": q}
+def get_outpost(*, session: Session = Depends(get_session), outpost_id: int):
+    outpost = session.get(Outpost, outpost_id)
+    if not outpost:
+        raise HTTPException(status_code=404, detail="Outpost not found")
+    return outpost
 
 
-@app.post("/api/v1/outposts")
-def create_outpost(outpost: Outpost):
-    return "hehe"
+@app.post("/api/v1/outposts", response_model=OutpostRead)
+def create_outpost(
+    *,
+    session: Session = Depends(get_session),
+    outpost: OutpostCreate
+):
+    db_outpost = Outpost.from_orm(outpost)
+    session.add(db_outpost)
+    session.commit()
+    session.refresh(db_outpost)
+    return db_outpost
+
+
+@app.patch("/api/v1/outposts/{outpost_id}", response_model=OutpostRead)
+def update_outpost(
+    *,
+    session: Session = Depends(get_session),
+    outpost_id: int,
+    outpost: OutpostUpdate
+):
+    db_outpost = session.get(Outpost, outpost_id)
+    if not db_outpost:
+        raise HTTPException(status_code=404, detail="Outpost not found")
+
+    outpost_data = outpost.dict(exclude_unset=True)
+    for key, value in outpost_data.items():
+        setattr(db_outpost, key, value)
+
+    session.add(db_outpost)
+    session.commit()
+    session.refresh(db_outpost)
+    return db_outpost
+
+
+@app.delete("/api/v1/outposts/{outpost_id}")
+def delete_outpost(
+    *,
+    session: Session = Depends(get_session),
+    outpost_id: int
+):
+    outpost = session.get(Outpost, outpost_id)
+    if not outpost:
+        raise HTTPException(status_code=404, detail="Outpost not found")
+    session.delete(outpost)
+    session.commit()
+    return {"ok": True}
 
 
 @app.get("/api/v1/tasks", response_model=list[TaskRead])
